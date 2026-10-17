@@ -96,7 +96,10 @@ def test_fetch_image_other_inputs_unchanged(kind):
         ("file:///C:/images/literal%2520.png", nturl2path.url2pathname, "C:\\images\\literal%20.png"),
         ("file://localhost/C:/images/plain.png", nturl2path.url2pathname, "C:\\images\\plain.png"),
         ("file://LOCALHOST/C:/images/plain.png", nturl2path.url2pathname, "C:\\images\\plain.png"),
-        ("file://server/share/space%20name.png", nturl2path.url2pathname, "\\\\server\\share\\space name.png"),
+        ("file:///tmp/question%3Fname.png", unquote, "/tmp/question?name.png"),
+        ("file:///C:/images/question%3Fname.png", nturl2path.url2pathname, "C:\\images\\question?name.png"),
+        ("file:///tmp/plain.png?query=ignored", unquote, "/tmp/plain.png"),
+        ("file:///tmp/plain.png#fragment", unquote, "/tmp/plain.png"),
     ],
 )
 def test_file_uri_conversion_without_filesystem_access(monkeypatch, uri, converter, expected):
@@ -107,3 +110,41 @@ def test_file_uri_conversion_without_filesystem_access(monkeypatch, uri, convert
     monkeypatch.setattr(vision_process.Image, "open", open_image)
     assert_image(fetch_image({"image": uri}))
     open_image.assert_called_once_with(expected)
+
+
+@pytest.mark.parametrize("uri", [
+    "file://server/share/image.png",
+    "file://server/C:/images/a.png",
+    "file://localhost.evil/share/image.png",
+    "file://127.0.0.1/share/image.png",
+    "file://user@localhost/share/image.png",
+    "file://\\\\server\\share\\image.png",
+])
+def test_remote_file_authority_rejected_before_open(monkeypatch, uri):
+    open_image = Mock(return_value=Image.new("RGB", (56, 56), "red"))
+    monkeypatch.setattr(vision_process.Image, "open", open_image)
+    with pytest.raises(ValueError, match="Only local file URIs are supported"):
+        fetch_image({"image": uri})
+    open_image.assert_not_called()
+
+
+@pytest.mark.parametrize("uri", [
+    "file:////server/share/image.png",
+    "file:///%2Fserver/share/image.png",
+    "file:///%5Cserver/share/image.png",
+])
+def test_windows_network_uri_rejected_after_decoding(monkeypatch, uri):
+    monkeypatch.setattr(vision_process, "url2pathname", nturl2path.url2pathname)
+    open_image = Mock(return_value=Image.new("RGB", (56, 56), "red"))
+    monkeypatch.setattr(vision_process.Image, "open", open_image)
+    with pytest.raises(ValueError, match="Only local file URIs are supported"):
+        fetch_image({"image": uri})
+    open_image.assert_not_called()
+
+
+def test_plain_unc_path_unchanged_without_network_access(monkeypatch):
+    path = "\\\\server\\share\\image.png"
+    open_image = Mock(return_value=Image.new("RGB", (56, 56), "red"))
+    monkeypatch.setattr(vision_process.Image, "open", open_image)
+    assert_image(fetch_image({"image": path}))
+    open_image.assert_called_once_with(path)

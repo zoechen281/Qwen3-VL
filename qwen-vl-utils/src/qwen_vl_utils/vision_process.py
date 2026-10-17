@@ -112,10 +112,10 @@ def fetch_image(ele: Dict[str, Union[str, Image.Image]], image_patch_size: int =
         # Keep legacy file://C:\path inputs as literal native paths on Windows.
         if not (os.name == "nt" and len(image_path) >= 2 and image_path[1] == ":"):
             uri = urlsplit(image)
-            image_path = uri.path
-            if uri.netloc and uri.netloc.lower() != "localhost":
-                image_path = "//" + uri.netloc + image_path
-            image_path = url2pathname(image_path)
+            image_path = url2pathname(uri.path)
+            # Reject remote hosts and UNC paths, including percent-encoded separators.
+            if uri.netloc.lower() not in ("", "localhost") or image_path[:2].replace("\\", "/") == "//":
+                raise ValueError(f"Only local file URIs are supported, got {image}")
         image_obj = Image.open(image_path)
     elif image.startswith("data:image"):
         if "base64," in image:
